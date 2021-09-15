@@ -3,41 +3,42 @@ import os
 
 import torch
 from torch import nn, optim
-
 from torchvision import transforms, datasets
-
-# configuration
+from torchvision.models import resnet34
 from tqdm import tqdm
 
-from model import vgg
+from model import resnet50
 
+# configuration
 DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-BATCH_SIZE = 32
-NC = 5
+BATCH_SIZE = 16
 NW = 0
+# NW = min([os.cpu_count(), BATCH_SIZE if BATCH_SIZE > 1 else 0, 8])
+NC = 5
 
 
 def train(train_loader, val_loader):
-    net = vgg(model_name="vgg16", num_classes=5, init_weights=True)
+    net = resnet50(pretrained=True, num_classes=5)
     net.to(DEVICE)
-    loss_function = nn.CrossEntropyLoss()
-    optimizer = optim.Adam(net.parameters(), lr=0.0001)
 
-    epochs = 30
-    model_path = "./vgg-e{}.pth".format(epochs)
+    loss_function = nn.CrossEntropyLoss()
+    optimizer = optim.Adam(net.parameters(), lr=1e-4)
+
+    epochs = 10
+    model_path = "./resnet-e{}.pth".format(epochs)
     best_acc = 0.0
 
     # training
     for epoch in range(epochs):
         # train
-        net.train()  # e.g. dropout, BN
+        net.train()
         running_loss = 0.0
         train_bar = tqdm(train_loader)
         for step, data in enumerate(train_bar):
             images, labels = data
             optimizer.zero_grad()
-            outputs = net(images.to(DEVICE))
-            loss = loss_function(outputs, labels.to(DEVICE))
+            logits = net(images.to(DEVICE))
+            loss = loss_function(logits, labels.to(DEVICE))
             loss.backward()
             optimizer.step()
 
@@ -46,7 +47,7 @@ def train(train_loader, val_loader):
 
             train_bar.desc = "train epoch[{}/{}] loss:{:.3f}".format(epoch + 1, epochs, loss)
 
-        # validate
+        # eval
         net.eval()
         acc = 0.0
         with torch.no_grad():
@@ -80,17 +81,18 @@ def main():
                                    transforms.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5))])
     }
 
-    data_root = os.path.abspath(os.path.join(os.getcwd(), "../.."))  # get data root path
-    image_path = os.path.join(data_root, "data_set", "flower_data")  # flower dataset path
+    data_root = os.path.abspath(os.path.join(os.getcwd(), "../.."))
+    image_path = data_root + "/data_set/flower_data/"
     assert os.path.exists(image_path), "{} path does not exist.".format(image_path)
 
-    train_dataset = datasets.ImageFolder(os.path.join(image_path, 'train'),
-                                         transform=data_transform['train'])
-    val_dataset = datasets.ImageFolder(os.path.join(image_path, 'val'),
-                                       transform=data_transform['val'])
+    train_dataset = datasets.ImageFolder(os.path.join(image_path, "train"),
+                                         data_transform["train"])
+    val_dataset = datasets.ImageFolder(os.path.join(image_path, "val"),
+                                       data_transform["val"])
 
     flower_list = train_dataset.class_to_idx
     class_dict = dict((val, key) for key, val in flower_list.items())
+    # print(class_dict)
     with open("class_indices.json", "w") as f:
         f.write(json.dumps(class_dict, indent=4))
 
